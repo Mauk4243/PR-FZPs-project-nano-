@@ -1,0 +1,160 @@
+import numpy as np
+from PIL import Image
+import zipfile
+import io
+from scipy.optimize import curve_fit
+
+# ============================================================
+# GAUSSIAN MODEL
+# ============================================================
+def gaussian_model(r, I0, w):
+    return I0 * np.exp(-2 * (r**2) / (w**2))
+
+# ============================================================
+# LOAD MASTER DARK
+# ============================================================
+def load_master_dark(zip_filename):
+    dark_frames = []
+    with zipfile.ZipFile(zip_filename, 'r') as z:
+        for file in z.namelist():
+            if file.startswith("__MACOSX/") or file.split("/")[-1].startswith("._"):
+                continue
+            if file.lower().endswith((".jpg", ".jpeg", ".png")):
+                img = Image.open(io.BytesIO(z.read(file))).convert("L")
+                dark_frames.append(np.array(img, dtype=np.float32))
+    return np.median(dark_frames, axis=0) if dark_frames else np.zeros((1,1))
+
+# ============================================================
+# ANALYSIS FUNCTION
+# ============================================================
+def analyze_focus_gaussian(image_data, dark_frame, image_name=""):
+    img = Image.open(io.BytesIO(image_data)).convert("L")
+    arr = np.array(img, dtype=np.float32)
+    arr -= dark_frame
+    arr[arr < 0] = 0
+
+    peak = arr.max()
+    # Find center using pixels above 50% peak
+    mask_center = arr >= 0.5 * peak
+    ys, xs = np.where(mask_center)
+    x0, y0 = xs.mean(), ys.mean()
+
+    y, x = np.indices(arr.shape)
+    r_dist = np.sqrt((x - x0)**2 + (y - y0)**2)
+
+    # Radial averaging
+    r_int = r_dist.astype(int)
+    max_r = r_int.max()
+    radial_sum = np.bincount(r_int.ravel(), arr.ravel(), minlength=max_r + 1)
+    radial_count = np.bincount(r_int.ravel(), minlength=max_r + 1)
+    radial_profile = radial_sum / np.maximum(radial_count, 1)
+
+    r_vals = np.arange(len(radial_profile))
+    I_vals = radial_profile
+
+    # MASKING: Ignore rings by only fitting data > 10% of peak
+    mask_fit = I_vals > 0.1 * peak
+    r_fit = r_vals[mask_fit]
+    I_fit = I_vals[mask_fit]
+
+    try:
+        # Initial guess: [Peak Intensity, Radius where I ~ 13% of peak]
+        guess_w = r_fit[np.argmin(np.abs(I_fit - 0.13 * peak))] if len(r_fit) > 0 else 10
+        popt, pcov = curve_fit(gaussian_model, r_fit, I_fit, p0=[peak, guess_w])
+        
+        I0_fit, w_fit = popt
+        w_err = np.sqrt(pcov[1, 1])
+        
+        # Calculate residuals (how well the model matches the data)
+        residuals = I_fit - gaussian_model(r_fit, *popt)
+        res_std = np.std(residuals)
+
+        return {
+            "image": image_name,
+            "center": (x0, y0),
+            "radius_1e2": w_fit,
+            "radius_1e2_err": w_err,
+            "I0_fit": I0_fit,
+            "residual_std": res_std,
+            "num_pixels": np.sum(r_dist <= w_fit)
+        }
+    except:
+        return None
+
+# ============================================================
+# PROCESSING & RESULTS
+# ============================================================
+IMAGE_ZIP = "Zara.zip"
+DARK_ZIP  = "Zara_dark.zip"
+
+master_dark = load_master_dark(DARK_ZIP)
+all_results = []
+
+with zipfile.ZipFile(IMAGE_ZIP, "r") as z:
+    for file in z.namelist():
+        if file.lower().endswith((".jpg", ".jpeg")) and not file.split("/")[-1].startswith("."):
+            res = analyze_focus_gaussian(z.read(file), master_dark, file)
+            if res: all_results.append(res)
+
+print("\n========================\n RESULTS PER IMAGE\n========================")
+for r in all_results:
+    print(f"\nImage: {r['image']}")
+    print(f"  1/e^2 radius w: {r['radius_1e2']:.3f} ± {r['radius_1e2_err']:.3f} pixels")
+    print(f"  Residual Std Dev: {r['residual_std']:.3f} (Lower is better)")
+
+# --- GLOBAL STATISTICS ---
+radii = np.array([r["radius_1e2"] for r in all_results])
+fit_errors = np.array([r["radius_1e2_err"] for r in all_results])
+
+mean_w = np.mean(radii)
+# Combined Uncertainty: Propagated fit errors + Statistical spread
+sem_spread = np.std(radii, ddof=1) / np.sqrt(len(radii))
+prop_fit_err = np.sqrt(np.sum(fit_errors**2)) / len(radii)
+total_uncertainty = np.sqrt(sem_spread**2 + prop_fit_err**2)
+
+print("\n========================\n GLOBAL AVERAGES\n========================")
+print(f"Mean Radius w: {mean_w:.3f} pixels")
+print(f"Total Uncertainty: ± {total_uncertainty:.3f} pixels")
+print(f"Final Result: w = {mean_w:.3f} ± {total_uncertainty:.3f}")
+
+'''FINAL DATA'''
+
+# Extract all radii and their individual fit errors
+radii = np.array([r["radius_1e2"] for r in all_results])
+fit_errors = np.array([r["radius_1e2_err"] for r in all_results])
+
+# 1. Calculate the Mean
+mean_w = np.mean(radii)
+
+# 2. Calculate the Statistical Standard Deviation (Spread between images)
+std_dev_w = np.std(radii, ddof=1)
+
+# 3. Calculate the Propagated Fit Error of the Mean
+# (Uncertainty of the mean based strictly on the quality of the fits)
+propagated_err = np.sqrt(np.sum(fit_errors**2)) / len(radii)
+
+# 4. Final Uncertainty
+# Usually, we take the larger of the two: the spread of the data 
+# or the propagated error from the fit.
+final_err = max(std_dev_w / np.sqrt(len(radii)), propagated_err)
+
+print("\n========================")
+print(" FINAL GLOBAL STATISTICS")
+print("========================")
+print(f"Average Radius w: {mean_w:.3f} pixels")
+print(f"Standard Dev:     {std_dev_w:.3f} pixels")
+print(f"Uncertainty (SEM): {final_err:.3f} pixels")
+print(f"Final Result:     w = {mean_w:.3f} ± {final_err:.3f}")
+
+'''
+# Statistical uncertainty (Standard Error of the Mean)
+sem_spread = np.std(radii, ddof=1) / np.sqrt(len(radii))
+
+# Total combined uncertainty
+total_uncertainty = np.sqrt(propagated_err**2 + sem_spread**2)
+
+print(f"Final Result: w = {mean_w:.3f} ± {total_uncertainty:.3f}")
+'''
+print(propagated_err)
+print(f"Final Result in micro meters:     w = {(2.4*mean_w):.3f} ± {(2.4*final_err):.3f}")
+
