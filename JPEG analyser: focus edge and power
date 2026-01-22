@@ -1,0 +1,263 @@
+import numpy as np
+from PIL import Image
+import zipfile
+import io
+
+def get_extra_image_info(image_data, master_dark):
+    """
+    Returns image dimensions and 'netto' pixel statistics 
+    (after dark frame subtraction).
+    """
+    # 1. Load Image
+    img = Image.open(io.BytesIO(image_data)).convert("L")
+    width, height = img.size
+    
+    # 2. Convert to array and subtract dark
+    arr = np.array(img, dtype=np.float32)
+    # Ensure master_dark matches dimensions (handle cropping if necessary)
+    netto_arr = arr - master_dark
+    
+    # 3. Clip negative values to zero (netto cannot be less than 0)
+    netto_arr[netto_arr < 0] = 0
+    
+    # 4. Calculate Statistics
+    total_netto_sum = np.sum(netto_arr)
+    mean_netto_value = np.mean(netto_arr)
+    
+    return {
+        "dimensions": (width, height),
+        "total_netto_sum": total_netto_sum,
+        "mean_netto_value": mean_netto_value,
+        "raw_netto_pixels": netto_arr # This is the full array of values
+    }
+
+
+
+def load_master_dark(zip_filename):
+    """
+    Load all dark images from a ZIP file and return the average dark frame
+    """
+    dark_frames = []
+
+    with zipfile.ZipFile(zip_filename, 'r') as z:
+        for file in z.namelist():
+
+            if file.startswith("__MACOSX/"):
+                continue
+            if file.split("/")[-1].startswith("._"):
+                continue
+
+            if file.lower().endswith((".jpg", ".jpeg", ".png", ".tif", ".bmp")):
+                image_data = z.read(file)
+                img = Image.open(io.BytesIO(image_data)).convert("L")
+                arr = np.array(img, dtype=np.float32)
+                dark_frames.append(arr)
+
+    if len(dark_frames) == 0:
+        raise ValueError("No dark images found in ZIP file.")
+
+    master_dark = np.mean(dark_frames, axis=0)
+    return master_dark
+
+def compute_radial_profile(arr, x0, y0, max_radius=None):
+    """
+    Compute mean intensity as a function of radius
+    """
+    y, x = np.indices(arr.shape)
+    r = np.sqrt((x - x0)**2 + (y - y0)**2)
+
+    if max_radius is None:
+        max_radius = int(r.max())
+
+    r_int = r.astype(np.int32)
+    radial_sum = np.bincount(r_int.ravel(), arr.ravel())
+    radial_count = np.bincount(r_int.ravel())
+
+    radial_mean = radial_sum / np.maximum(radial_count, 1)
+    radii = np.arange(len(radial_mean))
+
+    return radii[:max_radius], radial_mean[:max_radius]
+
+
+def analyze_circle_complete(image_data, dark_frame, image_name="", num_angles=16):
+    """
+    Complete circle analysis: detect radius using monotonic method 
+    and calculate average value within the circle
+    """
+    
+    # Load image (image_data = bytes from ZIP)
+    img = Image.open(io.BytesIO(image_data)).convert("L")
+    arr = np.array(img, dtype=np.float32)
+
+    # Subtract dark
+    arr = arr - dark_frame
+
+    # Clip negative values
+    arr[arr < 0] = 0
+
+    # Find center (brightest point)
+    max_val = arr.max()
+    y0, x0 = np.argwhere(arr == max_val)[0]
+    center = (x0, y0)
+
+    # Detect radius
+    radii = []
+    for angle in np.linspace(0, 2*np.pi, num_angles, endpoint=False):
+        dx, dy = np.cos(angle), np.sin(angle)
+        radius = 0
+        prev_value = arr[y0, x0]
+        
+        while True:
+            radius += 1
+            x = int(x0 + radius * dx)
+            y = int(y0 + radius * dy)
+            
+            if x < 0 or x >= arr.shape[1] or y < 0 or y >= arr.shape[0]:
+                radii.append(radius - 1)
+                break
+            
+            current_value = arr[y, x]
+            if current_value > prev_value:
+                radii.append(radius)
+                break
+
+            prev_value = current_value
+
+    avg_radius = np.mean(radii)
+    std_radius = np.std(radii)
+    
+    # --- Radial intensity profile ---
+    radii, radial_mean = compute_radial_profile(arr, x0, y0, max_radius=int(avg_radius))
+
+    # Peak intensity (center)
+    I0 = radial_mean[0]
+    threshold = I0 / np.exp(2)
+
+    # Find first radius below threshold
+    below = np.where(radial_mean <= threshold)[0]
+
+    if len(below) > 0:
+        r_1e2 = radii[below[0]]
+    else:
+        r_1e2 = np.nan
+
+    # Average value inside circle
+    y_coords, x_coords = np.ogrid[:arr.shape[0], :arr.shape[1]]
+    distances = np.sqrt((x_coords - x0)**2 + (y_coords - y0)**2)
+    circle_mask = distances <= avg_radius
+
+    pixels_inside = arr[circle_mask]
+    avg_value = np.mean(pixels_inside)
+    median_value = np.median(pixels_inside)
+    std_value = np.std(pixels_inside)
+
+    return {
+        'image': image_name,
+        'center': center,
+        'radius': avg_radius,
+        'radius_std': std_radius,
+        'radius_1e2': r_1e2,
+        'avg_value': avg_value,
+        'median_value': median_value,
+        'std_value': std_value,
+        'num_pixels': len(pixels_inside),
+    }
+
+
+# -------------------------------------------------------------------------
+# PROCESS ALL IMAGES IN A ZIP FILE
+# -------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------
+# LOAD MASTER DARK
+# -------------------------------------------------------------------------
+dark_zip = "rood_19dark.zip"
+print("Loading dark frames...")
+master_dark = load_master_dark(dark_zip)
+print("Dark frame loaded.")
+
+
+zip_filename = "rood_19.zip"   # <-- CHANGE THIS TO YOUR ZIP FILE
+all_results = []
+
+with zipfile.ZipFile(zip_filename, 'r') as z:
+    for file in z.namelist():
+
+        # Skip folders and macOS metadata
+        if file.startswith("__MACOSX/"):
+            continue
+        if file.split("/")[-1].startswith("._"):
+            continue
+
+        # Only process real image files
+        if file.lower().endswith((".jpg", ".jpeg", ".png", ".tif", ".bmp")):
+            print(f"\nProcessing {file} ...")
+            image_data = z.read(file)
+            result = analyze_circle_complete(image_data, dark_frame=master_dark, image_name=file)
+            all_results.append(result)            
+            
+            
+
+# -------------------------------------------------------------------------
+# PRINT SUMMARY
+# -------------------------------------------------------------------------
+print("\n\n========================")
+print("   SUMMARY OF RESULTS")
+print("========================")
+
+for res in all_results:
+    print(f"\nImage: {res['image']}")
+    print(f"  Center: {res['center']}")
+    print(f"  Radius: {res['radius']:.2f} ± {res['radius_std']:.2f}")
+    print(f"  Avg value: {res['avg_value']:.2f}")
+    print(f"  1/e^2 radius: {res['radius_1e2']:.2f} px")
+    print(f"  Median value: {res['median_value']:.2f}")
+    print(f"  Std dev: {res['std_value']:.2f}")
+    print(f"  Pixels inside: {res['num_pixels']}")
+
+# Optional: compute global averages
+mean_radius = np.mean([r['radius'] for r in all_results])
+mean_value  = np.mean([r['avg_value'] for r in all_results])
+mean_pixels = np.mean([r['num_pixels'] for r in all_results])
+std_values = [r['std_value'] for r in all_results]
+
+
+print("\n\n========================")
+print("   GLOBAL AVERAGES")
+print("========================")
+
+# Example usage within your loop:
+info = get_extra_image_info(image_data, master_dark)
+print(f"Dimensions: {info['dimensions']}")
+print(f"Mean Netto: {info['mean_netto_value']}")
+
+print(f"Average radius across all images: {mean_radius:.2f}")
+print(f"Average intensity across all images: {mean_value:.2f}")
+print(f"Average pixels inside across all images: {mean_pixels:.2f}")
+
+
+std_values = np.array([r['std_value'] for r in all_results])
+
+rms_std = np.sqrt(np.mean(std_values**2))
+
+print("\n\n========================")
+print(" RMS PIXEL STD DEV ")
+print("========================")
+print(f"RMS pixel standard deviation: {rms_std:.2f}")
+
+'''POWER IN FOCUS'''
+'''pixels zijn 3.45 micrometer voor IR camera'''
+
+# focus values / total netto values
+P =  mean_value * mean_pixels / (....*(3088*2064)) #JPEG dimension
+
+#P_err = (P) * (A_err * np.pi * 2 / r_average
+#P_err = mean_value * mean_pixels_err / (0.124907*(2080*1544))
+
+P_err = P* (31.17/5060.80)
+
+#print('error focus intensity', )
+print('De power in focus:', P*100, '±', P_err*100, '%')
+
+
+
