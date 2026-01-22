@@ -1,0 +1,109 @@
+'''
+De beam komt gecollimeerd op L1 met een breedte van 2.06mm. 
+De beam komt uit L2 gecollimeerd op de FZP uiteindelijk met een breedte van 1mm. 
+
+'''
+
+# DIAMETER
+# Beam Diameter input L1: 2.06mm
+# Beam diamter required at FZP: 1.1 mm
+
+# FOCAL LENGTH
+# Divergent lens L2, f_L2: unknown
+# Convergent lens L3 (to collimate), f_L3: unknown
+# Object distance from L2 to L3, DO: f_L3
+
+import numpy as np
+
+# FZP Sean en Frederique r = 535 micrometer
+
+y_in = 0.69   # mm (straal = helft van diameter)
+alpha_in = 0  # rad, collimated beam
+v_in = np.array([y_in, alpha_in])
+
+
+# Gegeven convergerende lens
+f1 = -25 #mm
+f2 = 35 #mm
+DO= L = 10 #mm
+
+
+T = np.array([[1, L], [0, 1]])
+R_con = np.array([[1, 0], [-1/f1, 1]])
+R_div = np.array([[1, 0], [-1/f2, 1]])
+
+Ms = R_div @ T @ R_con
+
+v_out = Ms @ v_in
+
+
+print('vector in:', v_in)
+print('-')
+print('Syteem matrix:', Ms)
+print('-')
+print ('vector out:', v_out)
+
+# voor 19 zones willen we een straal FPZ van 940 micro meter, dus een vergroting van 1,36
+
+# Nu moet de buitenste straal voor 79 ringen Rn: 1.227 mm zijn. 
+
+
+
+import numpy as np
+
+'''Focus width/ radius
+FZP Zara and Jeremy
+7 rings
+
+RPM 0.6[79 ringen], 
+Rn_zara = 557,808211 micro
+
+'''
+
+import numpy as np
+# FZP met 19 zones en IR
+
+f = 0.03   #m
+λ = 635e-9   #m
+Rn = 601.6228e-6 #1.227e-3   
+
+'''
+1. IR FZP: Rn = 939,95 micro m
+
+'''
+
+def focus_rayleigh(f, λ, Rn):
+    return 1.22 * f * λ / (2 * Rn)
+
+def focus_gaussian(f, λ, Rn):
+    return f * λ / (np.pi * Rn)
+
+
+rayleigh_radius = focus_rayleigh(f, λ, Rn)
+gaussian_waist = focus_gaussian(f, λ, Rn)
+
+# Naar (µm)
+rayleigh_radius_um = rayleigh_radius * 1e6
+gaussian_waist_um = gaussian_waist * 1e6
+
+# Actual measured spot width (20.62 pixels × 2.4 µm per pixel)
+measured_width_um = 13.25 * 2.4
+
+# --- Print Results ---
+print("Rayleigh radius (µm):", rayleigh_radius_um)
+print("Gaussian waist (µm):", gaussian_waist_um)
+print("Measured spot width (µm):", measured_width_um)
+
+
+
+
+n = 15   #zones
+λ = 635e-9   #m
+Rn = 535.8e-6   #m
+
+def f(f, λ, Rn):
+    return (Rn*Rn) / (λ*n)  #Rn^2
+
+focuslength = f(f, λ, Rn)
+
+print('The focus length is:', focuslength)
