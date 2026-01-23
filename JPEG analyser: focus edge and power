@@ -208,11 +208,11 @@ print("========================")
 for res in all_results:
     print(f"\nImage: {res['image']}")
     print(f"  Center: {res['center']}")
-    print(f"  Radius: {res['radius']:.2f} ± {res['radius_std']:.2f}")
-    print(f"  Avg value: {res['avg_value']:.2f}")
-    print(f"  1/e^2 radius: {res['radius_1e2']:.2f} px")
-    print(f"  Median value: {res['median_value']:.2f}")
-    print(f"  Std dev: {res['std_value']:.2f}")
+    print(f"  Radius: {res['radius']:.3f} ± {res['radius_std']:.3f}")
+    print(f"  Avg value: {res['avg_value']:.3f}")
+    print(f"  1/e^2 radius: {res['radius_1e2']:.3f} px")
+    print(f"  Median value: {res['median_value']:.3f}")
+    print(f"  Std dev: {res['std_value']:.3f}")
     print(f"  Pixels inside: {res['num_pixels']}")
 
 # Optional: compute global averages
@@ -231,33 +231,7 @@ info = get_extra_image_info(image_data, master_dark)
 print(f"Dimensions: {info['dimensions']}")
 print(f"Mean Netto: {info['mean_netto_value']}")
 
-print(f"Average radius across all images: {mean_radius:.2f}")
-print(f"Average intensity across all images: {mean_value:.2f}")
-print(f"Average pixels inside across all images: {mean_pixels:.2f}")
-
-
-std_values = np.array([r['std_value'] for r in all_results])
-
-rms_std = np.sqrt(np.mean(std_values**2))
-
-print("\n\n========================")
-print(" RMS PIXEL STD DEV ")
-print("========================")
-print(f"RMS pixel standard deviation: {rms_std:.2f}")
-
-'''POWER IN FOCUS'''
-'''pixels zijn 3.45 micrometer voor IR camera'''
-
-# focus values / total netto values
-P =  mean_value * mean_pixels / (....*(3088*2064)) #JPEG dimension
-
-#P_err = (P) * (A_err * np.pi * 2 / r_average
-#P_err = mean_value * mean_pixels_err / (0.124907*(2080*1544))
-
-P_err = P* (31.17/5060.80)
-
-#print('error focus intensity', )
-print('De power in focus:', P*100, '±', P_err*100, '%')
-
-
+print(f"Average radius across all images: {mean_radius:.3f}")
+print(f"Average intensity across all images: {mean_value:.3f}")
+print(f"Average pixels inside across all images: {mean_pixels:.3f}")
 
