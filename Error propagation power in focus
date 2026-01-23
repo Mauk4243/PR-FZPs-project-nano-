@@ -1,0 +1,46 @@
+# Get the ROOT MEAN SQUARE from all pictures (I haven't used the std. pixels in my report, values where too low).
+std_values = np.array([r['std_value'] for r in all_results])
+
+rms_std = np.sqrt(np.mean(std_values**2))
+
+print("\n\n========================")
+print(" RMS PIXEL STD DEV ")
+print("========================")
+print(f"RMS pixel standard deviation: {rms_std:.3f}")
+
+
+r_values = np.array([r['radius_std'] for r in all_results])
+
+r_std = np.sqrt(np.mean(r_values**2))
+
+print("\n\n========================")
+print(" radius STD DEV ")
+print("========================")
+print(f"radius total average standard deviation: {r_std:.3f}")
+
+
+# ERROR PROPAGATION, TWO WAYS (relative error and partial der. )
+
+I = mean_value
+
+# use the correct values, dimensions of camera IR and visible light differ!
+# 0.12490738183259964 = the mean netto value for all the pictures, these values are computed in the focus power script!
+
+P =  mean_value * mean_pixels / (0.12490738183259964*(2080*1544))
+
+#P_err = (P) * (A_err * np.pi * 2 / r_average
+#P_err = mean_value * mean_pixels_err / (0.124907*(2080*1544))
+
+P1_err_abs = (2*np.pi) * mean_value * mean_radius * r_std
+P1_err_rela = P1_err_abs / (0.12490738183259964*(2080*1544))
+
+
+
+P2_err = P* 2*(r_std/mean_radius)
+
+#print('error focus intensity', )
+
+print('De power in focus (partial der. error):', P*100, '±', P1_err_rela*100, '%')
+print('De power in focus (± relative error):', P*100, '±', P2_err*100, '%')
+
+
