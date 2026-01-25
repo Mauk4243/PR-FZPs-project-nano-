@@ -1,0 +1,55 @@
+from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import imread
+import os
+filelist=os.listdir()
+data=imread(filelist[9])
+ 
+plt.figure()
+plt.imshow(data)
+dataselect=data[50:900,250:1100]
+plt.show()
+verticaal = np.sum(dataselect,axis=1)/len(dataselect[0]) #horizontaal weggesommeerd
+horizontaal = np.sum(dataselect,axis=0)/len(dataselect) #verticaal weggesommeerd
+ 
+rood = verticaal
+groen = verticaal
+blauw = verticaal
+ umppx= 1.275  #micrometer per pixel
+afstandas_verticaal = np.arange(len(groen))*umppx
+ 
+plt.figure()
+plt.plot(afstandas_verticaal,blauw,color='b')
+plt.grid()
+plt.xlabel("afstand / um")
+plt.show()
+afstandas_horizontaal = np.arange(len(horizontaal))*umppx
+plt.figure()
+plt.scatter(afstandas_horizontaal,horizontaal[:],color='g',label='data')
+plt.grid()
+plt.xlabel("afstand / um")
+ 
+def seanmodel(x,A1,A2,p1,p2,s1,s2,c):
+    return A1*np.exp(- (x-p1)**2/s1**2)+A2*np.exp(- (x-p2)**2/s2**2)+c
+ 
+gokA1 = 80
+gokA2 = 120
+gokp1=200
+gokp2=400
+s1=80
+s2=120
+c=60
+ 
+gokwaarden = [gokA1,gokA2,gokp1,gokp2,s1,s2,c]
+xasvoorfit=np.arange(0,np.max(afstandas_horizontaal),0.001)
+plt.plot(xasvoorfit,seanmodel(xasvoorfit,*gokwaarden),label="gok")
+popt,pcov=curve_fit(seanmodel,afstandas_horizontaal,horizontaal,p0=gokwaarden)
+errors=np.sqrt(pcov.diagonal())
+namen = ["A1","A2","p1","p2","s1","s2","c"]
+eenheden = ["-","-","um","um","um","um","-" ]
+for i in range(len(popt)):
+    print(namen[i] ," = (", popt[i], " +/- ", errors[i], " ) ", eenheden[i])
+ 
+plt.plot(xasvoorfit,seanmodel(xasvoorfit,*popt),label="fit")
+plt.legend()
+plt.show()
