@@ -52,7 +52,7 @@ def analyze_focus_gaussian(image_data, dark_frame, image_name=""):
     r_vals = np.arange(len(radial_profile))
     I_vals = radial_profile
 
-    # MASKING: Ignore rings by only fitting data > 10% of peak
+    # MASKING: Ignore rings by only fitting data > 10% of peak, making sure that the pixel data outside the focus does not interfere with the Gaussian profile of the focus
     mask_fit = I_vals > 0.1 * peak
     r_fit = r_vals[mask_fit]
     I_fit = I_vals[mask_fit]
