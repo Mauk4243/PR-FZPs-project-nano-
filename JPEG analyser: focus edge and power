@@ -126,21 +126,7 @@ def analyze_circle_complete(image_data, dark_frame, image_name="", num_angles=16
     avg_radius = np.mean(radii)
     std_radius = np.std(radii)
     
-    # --- Radial intensity profile ---
-    radii, radial_mean = compute_radial_profile(arr, x0, y0, max_radius=int(avg_radius))
-
-    # Peak intensity (center)
-    I0 = radial_mean[0]
-    threshold = I0 / np.exp(2)
-
-    # Find first radius below threshold
-    below = np.where(radial_mean <= threshold)[0]
-
-    if len(below) > 0:
-        r_1e2 = radii[below[0]]
-    else:
-        r_1e2 = np.nan
-
+  
     # Average value inside circle
     y_coords, x_coords = np.ogrid[:arr.shape[0], :arr.shape[1]]
     distances = np.sqrt((x_coords - x0)**2 + (y_coords - y0)**2)
@@ -156,7 +142,6 @@ def analyze_circle_complete(image_data, dark_frame, image_name="", num_angles=16
         'center': center,
         'radius': avg_radius,
         'radius_std': std_radius,
-        'radius_1e2': r_1e2,
         'avg_value': avg_value,
         'median_value': median_value,
         'std_value': std_value,
@@ -210,7 +195,6 @@ for res in all_results:
     print(f"  Center: {res['center']}")
     print(f"  Radius: {res['radius']:.3f} ± {res['radius_std']:.3f}")
     print(f"  Avg value: {res['avg_value']:.3f}")
-    print(f"  1/e^2 radius: {res['radius_1e2']:.3f} px")
     print(f"  Median value: {res['median_value']:.3f}")
     print(f"  Std dev: {res['std_value']:.3f}")
     print(f"  Pixels inside: {res['num_pixels']}")
